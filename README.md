@@ -38,7 +38,7 @@ export default { fetch: app };
 npm install @ricokahler/wend
 ```
 
-Requires Node 18+ (for the Fetch globals). No build step, no codegen. One runtime dependency: [`path-to-regexp`](https://github.com/pillarjs/path-to-regexp).
+Requires Node 18+ (for the Fetch globals). No build step, no codegen — about 800 lines across three files, one runtime dependency ([`path-to-regexp`](https://github.com/pillarjs/path-to-regexp)), and [small enough to read in a sitting](#small-enough-to-read).
 
 ## The idea
 
@@ -207,6 +207,111 @@ createFetchHandler(routes, {
 });
 ```
 
+## Validating input (Zod)
+
+`wend` doesn't bundle a validator — it gives you typed seams to plug one in. A
+small helper turns any [Zod](https://zod.dev) schema into a `422` on failure:
+
+```ts
+import { z } from 'zod';
+import { httpError } from '@ricokahler/wend/fetch';
+
+const parse = <T extends z.ZodType>(schema: T, value: unknown): z.infer<T> => {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    throw httpError(422, { error: 'Validation failed', issues: result.error.issues });
+  }
+  return result.data;
+};
+```
+
+**Body** — as reusable middleware that exposes a typed `ctx.body`:
+
+```ts
+import { createFetchHandler, extend, handler, notFound } from '@ricokahler/wend/fetch';
+
+const body = <T extends z.ZodType>(schema: T) =>
+  extend(async ({ req }): Promise<{ body: z.infer<T> }> => ({
+    body: parse(schema, await req.json()),
+  }));
+
+const NewUser = z.object({ name: z.string().min(1), email: z.string().email() });
+
+const app = createFetchHandler((route) =>
+  route
+    .with(body(NewUser))
+    .match({ path: '/users', method: 'POST' }, handler(({ body }) =>
+      Response.json({ created: body.email }), // body: { name: string; email: string }
+    ))
+    .serve(notFound()),
+);
+```
+
+**URL params** — they arrive as strings; `z.coerce` turns them into what you want:
+
+```ts
+const UserParams = z.object({ id: z.coerce.number().int().positive() });
+
+route.match({ path: '/users/:id', method: 'GET' }, handler(({ route }) => {
+  const { id } = parse(UserParams, route.params); // id: number
+  return Response.json({ id });
+}));
+```
+
+**Query string** — same helper, fed from the URL:
+
+```ts
+const Query = z.object({ page: z.coerce.number().int().positive().default(1) });
+
+route.match({ path: '/search', method: 'GET' }, handler(({ req }) => {
+  const { page } = parse(Query, Object.fromEntries(new URL(req.url).searchParams));
+  return Response.json({ page }); // page: number, defaults to 1
+}));
+```
+
+These use `@ricokahler/wend/fetch`. On `@ricokahler/wend/node` it's the same,
+except you read the body off the request stream before `parse(...)`-ing it.
+
+## Composing middleware
+
+Each `.with(...)` adds to the typed context, so the handler at the end sees the
+union of everything before it. Stack logging, auth, and body validation — the
+types follow through:
+
+```ts
+import {
+  createFetchHandler, extend, handler, httpError, middleware, notFound,
+} from '@ricokahler/wend/fetch';
+
+const log = middleware((next) => async (ctx) => {
+  const started = Date.now();
+  const res = await next(ctx);
+  console.log(`${ctx.routing.method} ${ctx.routing.pathname} → ${res.status} (${Date.now() - started}ms)`);
+  return res;
+});
+
+const requireAuth = extend(({ req }) => {
+  const token = req.headers.get('authorization');
+  if (!token) throw httpError(401, { error: 'Unauthorized' }); // short-circuits here
+  return { user: { id: token.replace('Bearer ', '') } };
+});
+
+const app = createFetchHandler((route) =>
+  route
+    .with(log)           // wraps every request
+    .with(requireAuth)   // adds ctx.user
+    .with(body(NewUser)) // adds ctx.body  (from the section above)
+    .match({ path: '/users', method: 'POST' }, handler(({ user, body }) =>
+      Response.json({ by: user.id, created: body.email }), // user and body both typed
+    ))
+    .serve(notFound()),
+);
+```
+
+`requireAuth` throws before the handler runs, so unauthenticated requests never
+reach it — and because context accumulates by type, removing `.with(requireAuth)`
+turns `ctx.user` into a compile error at the handler.
+
 ## API
 
 Imported from `@ricokahler/wend/node` or `@ricokahler/wend/fetch` (both expose the same names, typed for
@@ -262,6 +367,20 @@ to get exact matching. The remaining pathname after a match is on
 `createNodeHandler` / `createFetchHandler` install an error boundary and inject
 the base context (`req`, the matched `routing`, and `res` for Node). The router
 core itself imports neither `node:http` nor `Response`.
+
+## Small enough to read
+
+The whole library is **~800 lines across three files** — much of it the
+compile-time path-param inference and doc comments. One runtime dependency
+(`path-to-regexp`). If you like to know what you depend on, it's short enough to
+read end to end:
+
+- [`src/index.ts`](src/index.ts) — the builder, the type-level param inference, and the error boundary. Imports nothing runtime-specific.
+- [`src/node.ts`](src/node.ts) — the Node adapter (~140 lines).
+- [`src/fetch.ts`](src/fetch.ts) — the Fetch adapter (~110 lines).
+
+The `src/` is shipped in the published package too, so it's there in
+`node_modules/@ricokahler/wend/` as well.
 
 ## For AI agents
 
