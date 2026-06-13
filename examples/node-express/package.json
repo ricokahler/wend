@@ -1,0 +1,12 @@
+{
+  "name": "wend-example-node-express",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.0.0",
+    "wend": "^0.1.0"
+  }
+}

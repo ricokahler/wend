@@ -1,0 +1,72 @@
+{
+  "name": "wend",
+  "version": "0.1.0",
+  "description": "Typed, composable HTTP routing with path-param inference, for Node and Fetch runtimes.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
+    "./fetch": {
+      "types": "./dist/fetch.d.ts",
+      "import": "./dist/fetch.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "SKILL.md",
+    "AGENTS.md",
+    "llms.txt",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "router",
+    "http",
+    "fetch",
+    "typescript",
+    "typed",
+    "middleware",
+    "composable",
+    "cloudflare-workers",
+    "deno",
+    "bun",
+    "express",
+    "edge"
+  ],
+  "author": "Rico Kahler",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ricokahler/wend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ricokahler/wend/issues"
+  },
+  "homepage": "https://github.com/ricokahler/wend#readme",
+  "dependencies": {
+    "path-to-regexp": "^8.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
