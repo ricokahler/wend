@@ -7,6 +7,6 @@
   },
   "dependencies": {
     "express": "^5.0.0",
-    "wend": "^0.1.0"
+    "@ricokahler/wend": "^1.0.0"
   }
 }

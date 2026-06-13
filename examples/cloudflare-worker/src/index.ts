@@ -1,4 +1,4 @@
-import { createFetchHandler, handler, httpError, notFound } from 'wend/fetch';
+import { createFetchHandler, handler, httpError, notFound } from '@ricokahler/wend/fetch';
 
 export default {
   fetch: createFetchHandler((route) =>

@@ -1,6 +1,6 @@
 # deno example
 
-`Deno.serve` using `wend/fetch` via the `npm:` specifier.
+`Deno.serve` using `@ricokahler/wend/fetch` via the `npm:` specifier.
 
 ```bash
 deno run --allow-net main.ts

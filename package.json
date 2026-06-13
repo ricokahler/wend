@@ -1,8 +1,12 @@
 {
-  "name": "wend",
-  "version": "0.1.0",
+  "name": "@ricokahler/wend",
+  "version": "0.0.0-development",
   "description": "Typed, composable HTTP routing with path-param inference, for Node and Fetch runtimes.",
   "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -35,6 +39,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "release": "semantic-release",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -65,7 +70,10 @@
     "path-to-regexp": "^8.4.2"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
     "@types/node": "^22.15.0",
+    "semantic-release": "^24.2.3",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }

@@ -1,8 +1,8 @@
 # wend
 
-> Typed, composable HTTP routing for `(req, res)` and `Request`/`Response` handlers. One immutable builder with compile-time path-param inference and typed context accumulation; a runtime-agnostic core with two native adapters — `wend/node` (mutate `res`) and `wend/fetch` (return `Response`).
+> Typed, composable HTTP routing for `(req, res)` and `Request`/`Response` handlers. One immutable builder with compile-time path-param inference and typed context accumulation; a runtime-agnostic core with two native adapters — `@ricokahler/wend/node` (mutate `res`) and `@ricokahler/wend/fetch` (return `Response`).
 
-Import from a runtime adapter. `wend/node` covers node:http, Express, Next.js pages API, Fastify (raw), Google Cloud Functions. `wend/fetch` covers Cloudflare Workers, Deno, Bun, Next.js App Router. The builder (`.with`/`.match`/`.serve`), param inference, and middleware model are identical in both. Requires Node 18+; one dependency (`path-to-regexp`).
+Import from a runtime adapter. `@ricokahler/wend/node` covers node:http, Express, Next.js pages API, Fastify (raw), Google Cloud Functions. `@ricokahler/wend/fetch` covers Cloudflare Workers, Deno, Bun, Next.js App Router. The builder (`.with`/`.match`/`.serve`), param inference, and middleware model are identical in both. Requires Node 18+; one dependency (`path-to-regexp`).
 
 ## Docs
 
@@ -13,5 +13,5 @@ Import from a runtime adapter. `wend/node` covers node:http, Express, Next.js pa
 ## Source
 
 - [src/index.ts](src/index.ts): runtime-agnostic core — `Router` builder, path-param inference, middleware, `RouteNotFoundError`/`HttpError`, `errorBoundary`.
-- [src/node.ts](src/node.ts): `wend/node` adapter — `createNodeHandler` + typed helpers.
-- [src/fetch.ts](src/fetch.ts): `wend/fetch` adapter — `createFetchHandler` + typed helpers.
+- [src/node.ts](src/node.ts): `@ricokahler/wend/node` adapter — `createNodeHandler` + typed helpers.
+- [src/fetch.ts](src/fetch.ts): `@ricokahler/wend/fetch` adapter — `createFetchHandler` + typed helpers.

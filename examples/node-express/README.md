@@ -1,6 +1,6 @@
 # node-express example
 
-Express mounting a `wend/node` handler. Handlers respond by mutating `res`.
+Express mounting a `@ricokahler/wend/node` handler. Handlers respond by mutating `res`.
 
 ```bash
 npm install

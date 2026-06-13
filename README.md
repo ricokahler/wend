@@ -3,7 +3,7 @@
 Typed, composable HTTP routing for `(req, res)` and `Request`/`Response` handlers.
 
 ```ts
-import { createNodeHandler, handler, notFound } from 'wend/node';
+import { createNodeHandler, handler, notFound } from '@ricokahler/wend/node';
 
 const app = createNodeHandler((route) =>
   route
@@ -19,7 +19,7 @@ http.createServer(app).listen(3000);
 The same router on Cloudflare Workers, Deno, or Bun — the builder is identical; you return a `Response` instead of mutating `res`:
 
 ```ts
-import { createFetchHandler, handler, notFound } from 'wend/fetch';
+import { createFetchHandler, handler, notFound } from '@ricokahler/wend/fetch';
 
 const app = createFetchHandler((route) =>
   route
@@ -35,7 +35,7 @@ export default { fetch: app };
 ## Install
 
 ```bash
-npm install wend
+npm install @ricokahler/wend
 ```
 
 Requires Node 18+ (for the Fetch globals). No build step, no codegen. One runtime dependency: [`path-to-regexp`](https://github.com/pillarjs/path-to-regexp).
@@ -51,8 +51,8 @@ builder to compose those handlers with three things tracked at the type level:
 
 The core is runtime-agnostic. You pick an adapter:
 
-- **`wend/node`** — handlers respond by mutating `res`. Runs on `node:http`, Express, Next.js (pages API), Fastify (raw), Google Cloud Functions.
-- **`wend/fetch`** — handlers return a `Response`. Runs on Cloudflare Workers, Deno, Bun, Next.js (App Router).
+- **`@ricokahler/wend/node`** — handlers respond by mutating `res`. Runs on `node:http`, Express, Next.js (pages API), Fastify (raw), Google Cloud Functions.
+- **`@ricokahler/wend/fetch`** — handlers return a `Response`. Runs on Cloudflare Workers, Deno, Bun, Next.js (App Router).
 
 The builder (`.with`, `.match`, `.serve`), the param inference, and the
 middleware model are the same in both. Only how a handler emits a response
@@ -63,7 +63,7 @@ conversion either way.
 
 ```ts
 import express from 'express';
-import { createNodeHandler, handler, notFound } from 'wend/node';
+import { createNodeHandler, handler, notFound } from '@ricokahler/wend/node';
 
 const app = createNodeHandler((route) =>
   route
@@ -88,7 +88,7 @@ so chainable calls (`res.json(x)`) and `async` handlers both work.
 ## Cloudflare Workers, Deno, Bun
 
 ```ts
-import { createFetchHandler, handler, notFound } from 'wend/fetch';
+import { createFetchHandler, handler, notFound } from '@ricokahler/wend/fetch';
 
 const app = createFetchHandler((route) =>
   route
@@ -128,7 +128,7 @@ Two kinds, both type-safe. **Context middleware** with `extend` returns fields
 that are merged into the context and visible (and typed) downstream:
 
 ```ts
-import { createNodeHandler, extend, handler, notFound } from 'wend/node';
+import { createNodeHandler, extend, handler, notFound } from '@ricokahler/wend/node';
 
 const auth = extend(async ({ req }) => ({
   user: await authenticate(req), // ctx.user is now typed downstream
@@ -145,10 +145,10 @@ const app = createNodeHandler((route) =>
 ```
 
 **Wrapper middleware** with `middleware` wraps execution — for CORS, timing, or
-logging. On `wend/fetch` it can transform the returned `Response`:
+logging. On `@ricokahler/wend/fetch` it can transform the returned `Response`:
 
 ```ts
-import { middleware } from 'wend/fetch';
+import { middleware } from '@ricokahler/wend/fetch';
 
 const cors = middleware((next) => async (ctx) => {
   if (ctx.routing.method === 'OPTIONS') return new Response(null, { status: 204 });
@@ -166,7 +166,7 @@ Middleware composes with `.with(...)` and applies in declaration order.
 nesting, and each sub-tree can have its own fallback:
 
 ```ts
-import { createNodeHandler, define, handler, notFound, type Router } from 'wend/node';
+import { createNodeHandler, define, handler, notFound, type Router } from '@ricokahler/wend/node';
 
 const users = define<Router.Context<{ orgId: string }>>((route) =>
   route
@@ -189,7 +189,7 @@ const app = createNodeHandler((route) =>
 Throw from any handler or middleware; the adapter's error boundary renders it:
 
 ```ts
-import { httpError, notFound } from 'wend/node';
+import { httpError, notFound } from '@ricokahler/wend/node';
 
 handler(({ route }) => {
   if (!route.params.id) throw httpError(400, { error: 'id required' }); // → 400 with that body
@@ -209,7 +209,7 @@ createFetchHandler(routes, {
 
 ## API
 
-Imported from `wend/node` or `wend/fetch` (both expose the same names, typed for
+Imported from `@ricokahler/wend/node` or `@ricokahler/wend/fetch` (both expose the same names, typed for
 their runtime):
 
 | Export | Description |
@@ -231,15 +231,15 @@ their runtime):
 
 | Runtime | Adapter |
 | --- | --- |
-| Cloudflare Workers | `wend/fetch` |
-| Deno (`Deno.serve`) | `wend/fetch` |
-| Bun (`Bun.serve`) | `wend/fetch` |
-| Next.js App Router | `wend/fetch` |
-| `node:http` | `wend/node` |
-| Express | `wend/node` |
-| Next.js pages API | `wend/node` |
-| Fastify (raw) | `wend/node` |
-| Google Cloud Functions | `wend/node` |
+| Cloudflare Workers | `@ricokahler/wend/fetch` |
+| Deno (`Deno.serve`) | `@ricokahler/wend/fetch` |
+| Bun (`Bun.serve`) | `@ricokahler/wend/fetch` |
+| Next.js App Router | `@ricokahler/wend/fetch` |
+| `node:http` | `@ricokahler/wend/node` |
+| Express | `@ricokahler/wend/node` |
+| Next.js pages API | `@ricokahler/wend/node` |
+| Fastify (raw) | `@ricokahler/wend/node` |
+| Google Cloud Functions | `@ricokahler/wend/node` |
 
 ## How it works
 
@@ -272,7 +272,7 @@ This package ships docs written for coding agents:
 - **`llms.txt`** — an index of the docs and source.
 
 All three are included in the published package, so an agent working in a
-project that depends on `wend` can read them from `node_modules/wend/`.
+project that depends on `wend` can read them from `node_modules/@ricokahler/wend/`.
 
 ## License
 

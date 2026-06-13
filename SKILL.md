@@ -1,6 +1,6 @@
 ---
 name: wend
-description: Write HTTP routes, middleware, and handlers with the `wend` router. Use whenever a project depends on `wend` (imports from `wend`, `wend/node`, or `wend/fetch`) and you are adding, structuring, or editing routes, middleware, path params, nested route trees, or error handling. Covers both the Node adapter (mutate `res`) and the Fetch adapter (return `Response`).
+description: Write HTTP routes, middleware, and handlers with the wend router. Use whenever a project depends on `@ricokahler/wend` (imports from `@ricokahler/wend`, `@ricokahler/wend/node`, or `@ricokahler/wend/fetch`) and you are adding, structuring, or editing routes, middleware, path params, nested route trees, or error handling. Covers both the Node adapter (mutate `res`) and the Fetch adapter (return `Response`).
 ---
 
 # Using wend
@@ -13,9 +13,9 @@ import from a runtime adapter.
 ## 1. Choose the adapter first
 
 Pick based on how the target runtime responds. **Import everything from the
-adapter, not from `wend` directly.**
+adapter, not from `@ricokahler/wend` directly.**
 
-| Use `wend/node` | Use `wend/fetch` |
+| Use `@ricokahler/wend/node` | Use `@ricokahler/wend/fetch` |
 | --- | --- |
 | `node:http`, Express, Next.js pages API, Fastify (raw), Google Cloud Functions | Cloudflare Workers, Deno, Bun, Next.js App Router |
 | Handlers **mutate `res`** and return nothing | Handlers **return a `Response`** |
@@ -30,9 +30,9 @@ Only the handler body and the create function differ.
 - **Typed context accumulates.** `.with(extend(...))` adds fields to `ctx`; every downstream handler sees them, typed.
 - **Params are inferred from the path string.** `'/users/:id'` ⇒ `ctx.route.params.id: string`. No annotation, no generic.
 - **Prefix matching, first match wins.** Uses `path-to-regexp` with `{ end: false }`: `'/status'` matches `/status`, `/status/`, and `/status/x`. Put more specific routes first. Nest + `.serve(notFound())` for exact matching.
-- **Respond by the adapter's contract.** `wend/node`: write to `ctx.res` (return value ignored). `wend/fetch`: `return` a `Response`.
+- **Respond by the adapter's contract.** `@ricokahler/wend/node`: write to `ctx.res` (return value ignored). `@ricokahler/wend/fetch`: `return` a `Response`.
 
-## 3. Core API (import from `wend/node` or `wend/fetch`)
+## 3. Core API (import from `@ricokahler/wend/node` or `@ricokahler/wend/fetch`)
 
 - `createNodeHandler(definition, options?)` / `createFetchHandler(definition, options?)` — build the runtime handler. `options`: `{ onError?, getRouting? }`.
 - `handler(fn)` — a terminal handler. `fn` receives `ctx`.
@@ -53,7 +53,7 @@ holds `params`, `pattern`, `pathname`, and `parent`.
 
 Node:
 ```ts
-import { createNodeHandler, handler, notFound } from 'wend/node';
+import { createNodeHandler, handler, notFound } from '@ricokahler/wend/node';
 
 const app = createNodeHandler((route) =>
   route
@@ -66,7 +66,7 @@ const app = createNodeHandler((route) =>
 
 Fetch:
 ```ts
-import { createFetchHandler, handler, notFound } from 'wend/fetch';
+import { createFetchHandler, handler, notFound } from '@ricokahler/wend/fetch';
 
 const app = createFetchHandler((route) =>
   route
@@ -83,7 +83,7 @@ Omit `method` to match any method. `spec.method` is one of
 ### Context middleware (auth, request-scoped values)
 
 ```ts
-import { extend } from 'wend/node';
+import { extend } from '@ricokahler/wend/node';
 
 const auth = extend(async ({ req }) => ({
   user: await authenticate(req), // downstream: ctx.user, fully typed
@@ -97,7 +97,7 @@ route.with(auth).match({ path: '/me', method: 'GET' }, handler(({ user, res }) =
 ### Wrapper middleware (CORS, timing, logging)
 
 ```ts
-import { middleware } from 'wend/fetch';
+import { middleware } from '@ricokahler/wend/fetch';
 
 const cors = middleware((next) => async (ctx) => {
   if (ctx.routing.method === 'OPTIONS') return new Response(null, { status: 204 });
@@ -109,13 +109,13 @@ const cors = middleware((next) => async (ctx) => {
 route.with(cors)./* ...routes... */;
 ```
 
-On `wend/node`, set headers on `ctx.res` before/after `await next(ctx)` and
+On `@ricokahler/wend/node`, set headers on `ctx.res` before/after `await next(ctx)` and
 return nothing.
 
 ### Nested / reusable route trees
 
 ```ts
-import { define, handler, notFound, type Router } from 'wend/node';
+import { define, handler, notFound, type Router } from '@ricokahler/wend/node';
 
 // Declare what context the sub-tree needs via the type argument.
 const users = define<Router.Context<{ orgId: string }>>((route) =>
@@ -133,7 +133,7 @@ route.match({ path: '/orgs/:orgId/users' }, users).serve(notFound());
 ### Errors
 
 ```ts
-import { httpError } from 'wend/node';
+import { httpError } from '@ricokahler/wend/node';
 
 handler(({ route, res }) => {
   if (!route.params.id) throw httpError(400, { error: 'id required' }); // → 400 + body
@@ -163,10 +163,10 @@ Bun.serve({ fetch: createFetchHandler(routes) });
 
 ## 5. Gotchas
 
-- **Match the adapter's response contract.** A `wend/fetch` handler that does not `return` a `Response` is a type error. A `wend/node` handler responds via `ctx.res` (its return value is ignored).
+- **Match the adapter's response contract.** A `@ricokahler/wend/fetch` handler that does not `return` a `Response` is a type error. A `@ricokahler/wend/node` handler responds via `ctx.res` (its return value is ignored).
 - **Order matters.** Routes match in declaration order with prefix semantics. Put `'/status/history'` before `'/status'`. For exact matching, nest and end with `.serve(notFound())`.
 - **`notFound()` is called, not just referenced** — `.serve(notFound())` (note the call). It returns a handler; to throw inline use `notFound()(ctx)` or just `throw new RouteNotFoundError(...)`.
 - **Param types:** `:name` → `string`, `*name` → `string[]`, `{name}` → `string | undefined`.
 - **`extend` vs `middleware`:** use `extend` to *add typed context*; use `middleware` to *wrap execution* (and, on fetch, transform the response).
-- **Import from the adapter** (`wend/node` / `wend/fetch`) so `ctx.req`/`ctx.res` and the return type are correctly typed. Importing `handler`/`extend` from `wend` directly loses the runtime-specific context typing.
+- **Import from the adapter** (`@ricokahler/wend/node` / `@ricokahler/wend/fetch`) so `ctx.req`/`ctx.res` and the return type are correctly typed. Importing `handler`/`extend` from `@ricokahler/wend` directly loses the runtime-specific context typing.
 - **Node 18+** is required (Fetch globals). The only dependency is `path-to-regexp`.

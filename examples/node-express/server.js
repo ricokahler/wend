@@ -1,5 +1,5 @@
 import express from 'express';
-import { createNodeHandler, extend, handler, httpError, notFound } from 'wend/node';
+import { createNodeHandler, extend, handler, httpError, notFound } from '@ricokahler/wend/node';
 
 // Context middleware: adds a typed field every downstream handler can read.
 const requestStart = extend(() => ({ startedAt: Date.now() }));

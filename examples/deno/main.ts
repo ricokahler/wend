@@ -1,4 +1,4 @@
-import { createFetchHandler, handler, notFound } from 'npm:wend/fetch';
+import { createFetchHandler, handler, notFound } from 'npm:@ricokahler/wend/fetch';
 
 const app = createFetchHandler((route) =>
   route

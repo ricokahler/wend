@@ -1,6 +1,6 @@
 # cloudflare-worker example
 
-A Worker using `wend/fetch`. Handlers return a `Response`.
+A Worker using `@ricokahler/wend/fetch`. Handlers return a `Response`.
 
 ```bash
 npm install

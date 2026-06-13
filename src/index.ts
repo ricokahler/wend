@@ -338,9 +338,9 @@ export namespace Router {
  * context or child routes that were added — no mutation, no ordering bugs.
  *
  * The core knows nothing about any runtime. A handler returns a `TResult`; a
- * runtime adapter (`wend/node`, `wend/fetch`) decides what `TResult` is, seeds
- * the base context, and renders results + errors. See those entry points for
- * ready-made, fully-typed helpers.
+ * runtime adapter (`@ricokahler/wend/node`, `@ricokahler/wend/fetch`) decides
+ * what `TResult` is, seeds the base context, and renders results + errors. See
+ * those entry points for ready-made, fully-typed helpers.
  */
 export class Router<TContext extends object = {}, TResult = void> {
   readonly middleware: Router.Middleware<any, any, TResult>;

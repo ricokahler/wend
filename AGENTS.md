@@ -10,15 +10,15 @@ adapters (Node `(req, res)` and Web Fetch `Request`/`Response`).
 the mental model, the full API, copy-paste recipes (routes, middleware, nested
 trees, errors), and gotchas. Anything you write with `wend` should follow it.
 
-One-line orientation: import from `wend/node` (handlers mutate `res`) or
-`wend/fetch` (handlers return a `Response`); compose with
+One-line orientation: import from `@ricokahler/wend/node` (handlers mutate `res`) or
+`@ricokahler/wend/fetch` (handlers return a `Response`); compose with
 `route.with(mw).match(spec, def).serve(notFound())`.
 
 ## Repo layout
 
 - `src/index.ts` — the runtime-agnostic core: the `Router` builder, type-level path-param inference, `Middleware`, `RouteNotFoundError` / `HttpError`, and the responder-driven `Router.errorBoundary`. **Must not import `node:http` or reference `Response`.**
-- `src/node.ts` — `wend/node`: `createNodeHandler` + helpers (`handler`, `define`, `extend`, `middleware`, `notFound`, `httpError`) pinned to `{ req, res }` and a `void` result.
-- `src/fetch.ts` — `wend/fetch`: `createFetchHandler` + the same helpers pinned to `{ req }` and a `Response` result.
+- `src/node.ts` — `@ricokahler/wend/node`: `createNodeHandler` + helpers (`handler`, `define`, `extend`, `middleware`, `notFound`, `httpError`) pinned to `{ req, res }` and a `void` result.
+- `src/fetch.ts` — `@ricokahler/wend/fetch`: `createFetchHandler` + the same helpers pinned to `{ req }` and a `Response` result.
 - `test/{core,node,fetch}.test.ts` — vitest suites.
 - `examples/` — runnable apps (node-express, cloudflare-worker, deno). Not published.
 
