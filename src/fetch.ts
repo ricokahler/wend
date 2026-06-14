@@ -10,6 +10,12 @@ export interface FetchContext {
   req: Request;
 }
 
+/** The full context every Fetch handler receives: routing plus `req`. */
+export type FetchBaseContext = Router.BaseContext & FetchContext;
+
+/** The handler shape `createFetchHandler` returns. */
+export type FetchHandler = (request: Request) => Promise<Response>;
+
 export interface FetchHandlerOptions {
   /** Reported for unexpected errors right before the 500 response. */
   onError?: (error: unknown, ctx: Router.BaseContext & FetchContext) => void;
@@ -52,7 +58,7 @@ function defaultGetRouting(request: Request): Router.RequestState {
 export function createFetchHandler(
   definition: Router.Definition<FetchContext, Response>,
   options: FetchHandlerOptions = {},
-): (request: Request) => Promise<Response> {
+): FetchHandler {
   const boundary = Router.errorBoundary<FetchContext, Response>({
     onNotFound: (_ctx, message) => jsonResponse({ error: message }, 404),
     onHttpError: (_ctx, status, body) => jsonResponse(body, status),

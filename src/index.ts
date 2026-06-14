@@ -508,10 +508,16 @@ export class Router<TContext extends object = {}, TResult = void> {
   /**
    * Finalizes the current router scope into a handler. Routes are tried in
    * declaration order; the first match wins; if none match, `fallback` runs.
+   *
+   * The result is typed `Handler<any, TResult>`: middleware added with
+   * `.with(...)` is baked in, so the composed handler's remaining context
+   * requirements are an implementation detail. Widening here keeps `Router`
+   * contravariant in `TContext`, so a route enriched beyond a sub-router's
+   * declared context still composes.
    */
   serve(
     fallback: Router.Handler<TContext, TResult>,
-  ): Router.Handler<TContext, TResult> {
+  ): Router.Handler<any, TResult> {
     const next: Router.Handler<TContext, TResult> = async (ctx) => {
       const parent = (ctx as Partial<Router.Context<any>>).route;
 

@@ -13,6 +13,15 @@ export interface NodeContext {
   res: ServerResponse;
 }
 
+/** The full context every Node handler receives: routing plus `req`/`res`. */
+export type NodeBaseContext = Router.BaseContext & NodeContext;
+
+/** The handler shape `createNodeHandler` returns. */
+export type NodeHandler = (
+  req: IncomingMessage,
+  res: ServerResponse,
+) => Promise<void>;
+
 export interface NodeHandlerOptions {
   /** Reported for unexpected errors right before the 500 response. */
   onError?: (error: unknown, ctx: Router.BaseContext & NodeContext) => void;
@@ -69,7 +78,7 @@ function defaultGetRouting(req: IncomingMessage): Router.RequestState {
 export function createNodeHandler(
   definition: Router.Definition<NodeContext, void>,
   options: NodeHandlerOptions = {},
-): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+): NodeHandler {
   const boundary = Router.errorBoundary<NodeContext, void>({
     hasResponded: ({ res }) => res.headersSent || res.writableEnded,
     onNotFound: ({ res }, message) => sendJson(res, 404, { error: message }),
