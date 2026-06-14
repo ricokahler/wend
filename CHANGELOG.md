@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/ricokahler/wend/compare/v1.0.0...v1.1.0) (2026-06-14)
+
+
+### Features
+
+* widen serve() result and export NodeBaseContext/NodeHandler + Fetch equivalents ([a942399](https://github.com/ricokahler/wend/commit/a942399db4ad4c0f1745487ed8d6214c16a9e2bf))
+
 # 1.0.0 (2026-06-13)
 
 
