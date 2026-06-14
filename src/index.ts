@@ -379,10 +379,14 @@ export class Router<TContext extends object = {}, TResult = void> {
    * Builds a middleware that shallowly extends the current context with the
    * fields it returns.
    *
+   * By convention, write middleware as a factory — a function that returns the
+   * middleware — so each `.with(...)` gets its own instance and you can pass
+   * config or hold per-instance state in the closure. Call it at the mount:
+   * `.with(auth())`.
+   *
    * ```ts
-   * const auth = Router.extend(async ({ req }) => ({
-   *   user: await authenticate(req),
-   * }));
+   * const auth = () =>
+   *   Router.extend(async ({ req }) => ({ user: await authenticate(req) }));
    * ```
    */
   static extend<
@@ -398,7 +402,10 @@ export class Router<TContext extends object = {}, TResult = void> {
     };
   }
 
-  /** Identity helper for wrapper-style middleware definitions. */
+  /**
+   * Identity helper for wrapper-style middleware (timing, CORS, logging). By
+   * convention, return it from a factory: `const cors = () => Router.middleware(...)`.
+   */
   static middleware<
     TAdds extends object = {},
     TNeeds extends object = {},

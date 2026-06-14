@@ -42,12 +42,25 @@ const body = <T extends z.ZodType>(schema: T) =>
     body: parse(schema, await req.json()),
   }));
 
-/** Middleware: require a bearer token, expose a typed `ctx.user`. */
-const requireAuth = extend(({ req }) => {
-  const token = req.headers.get('authorization');
-  if (!token) throw httpError(401, { error: 'Unauthorized' });
-  return { user: { id: token.replace('Bearer ', '') } };
-});
+/** Middleware factory: require a bearer token, expose a typed `ctx.user`. */
+const requireAuth = () =>
+  extend(({ req }) => {
+    const token = req.headers.get('authorization');
+    if (!token) throw httpError(401, { error: 'Unauthorized' });
+    return { user: { id: token.replace('Bearer ', '') } };
+  });
+
+/** Middleware factory with private per-instance state: a tiny rate limiter. */
+const rateLimit = ({ max }: { max: number }) => {
+  const hits = new Map<string, number>(); // private to this instance
+  return middleware((next) => async (ctx) => {
+    const key = ctx.req.headers.get('x-forwarded-for') ?? 'anon';
+    const n = (hits.get(key) ?? 0) + 1;
+    hits.set(key, n);
+    if (n > max) return new Response('Too many requests', { status: 429 });
+    return next(ctx);
+  });
+};
 
 /** Wrapper middleware: record method/path/status. */
 const log = (events: string[]) =>
@@ -120,7 +133,7 @@ describe('recipes — composition', () => {
     const app = createFetchHandler((route) =>
       route
         .with(log(events))
-        .with(requireAuth)
+        .with(requireAuth())
         .with(body(NewUser))
         .match({ path: '/users', method: 'POST' }, handler(({ user, body }) =>
           Response.json({ by: user.id, created: body.email }),
@@ -136,5 +149,24 @@ describe('recipes — composition', () => {
     );
     expect(await ok.json()).toEqual({ by: 'u_1', created: 'ada@x.com' });
     expect(events).toContain('POST /users 200');
+  });
+
+  it('keeps middleware state private per factory instance', async () => {
+    const make = () =>
+      createFetchHandler((route) =>
+        route
+          .with(rateLimit({ max: 2 }))
+          .match({ path: '/', method: 'GET' }, handler(() => Response.json({ ok: true })))
+          .serve(notFound()),
+      );
+
+    const app = make();
+    const hit = (a = app) => a(request('/', 'GET', undefined, { 'x-forwarded-for': '1.2.3.4' }));
+    expect((await hit()).status).toBe(200);
+    expect((await hit()).status).toBe(200);
+    expect((await hit()).status).toBe(429); // third request is over the limit
+
+    // A separate factory instance has its own private `hits` map — not limited.
+    expect((await hit(make())).status).toBe(200);
   });
 });

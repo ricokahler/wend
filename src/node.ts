@@ -114,7 +114,7 @@ export function define<TContext extends object = {}>(
   return Router.define(definition);
 }
 
-/** Context middleware: returns fields merged into downstream context. */
+/** Context middleware (return from a factory, e.g. `const auth = () => extend(...)`): merges returned fields into downstream context. */
 export function extend<TAdds extends object, TContext extends object = {}>(
   buildContext: (
     ctx: Router.BaseContext & NodeContext & TContext,
@@ -123,7 +123,7 @@ export function extend<TAdds extends object, TContext extends object = {}>(
   return Router.extend<TAdds, NodeContext & TContext, void>(buildContext);
 }
 
-/** Wrapper middleware: wrap execution (CORS, timing, logging). */
+/** Wrapper middleware (return from a factory, e.g. `const cors = () => middleware(...)`): wrap execution (CORS, timing, logging). */
 export function middleware<
   TAdds extends object = {},
   TContext extends object = {},

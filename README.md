@@ -42,22 +42,24 @@ Requires Node 18+ (for the Fetch globals). No build step, no codegen — about 8
 
 ## The idea
 
-A handler is a function over a context object. `wend` gives you one immutable
-builder to compose those handlers with three things tracked at the type level:
+A wend app is a **route tree** you build with a small, immutable builder. Three
+ideas carry the whole library:
 
-- **Context accumulation** — each `.with(...)` step extends the typed context that downstream handlers receive.
-- **Path params** — inferred from the path string. `'/users/:id'` gives you `route.params.id: string`, no annotation.
-- **Nested routes** — mount sub-trees; child routes see the accumulated context and parent params.
+- **Handlers are functions over a context.** Every handler gets one `ctx` — the request, the matched `route` (with typed params), and any fields that middleware added — and responds. That's the entire surface a handler sees.
+- **Context accumulates, and the types follow.** Each `.with(...)` step adds typed fields to `ctx` that every downstream handler can read. Path params come for free: `'/users/:id'` gives you `route.params.id: string`, no annotation.
+- **You compose, you don't mutate.** `.with(...)`, `.match(...)`, and `.serve(...)` each return a *new* router. Declaration order is the only order — no setup-ordering bugs, no global registration.
 
-The core is runtime-agnostic. You pick an adapter:
+The core is runtime-agnostic; you choose an adapter for *how a handler responds*:
 
-- **`@ricokahler/wend/node`** — handlers respond by mutating `res`. Runs on `node:http`, Express, Next.js (pages API), Fastify (raw), Google Cloud Functions.
+- **`@ricokahler/wend/node`** — handlers mutate `res`. Runs on `node:http`, Express, Next.js (pages API), Fastify (raw), Google Cloud Functions.
 - **`@ricokahler/wend/fetch`** — handlers return a `Response`. Runs on Cloudflare Workers, Deno, Bun, Next.js (App Router).
 
-The builder (`.with`, `.match`, `.serve`), the param inference, and the
-middleware model are the same in both. Only how a handler emits a response
-differs, and each adapter is native to its runtime — no request/response
-conversion either way.
+The builder, the param inference, and the middleware model are identical in both —
+only how a handler emits a response differs, and each adapter is native to its
+runtime (no request/response conversion).
+
+The rest of this README builds up from there: routes → typed params → middleware
+→ nested trees → errors → input validation → composition.
 
 ## Node / Express
 
@@ -109,7 +111,10 @@ A Fetch handler returns a `Response`. `async` handlers return `Promise<Response>
 
 ## Typed path params
 
-Params are read from the path string at the type level:
+Paths are matched with [`path-to-regexp`](https://github.com/pillarjs/path-to-regexp)
+— the same library Express uses — so the pattern syntax is the one you already
+know. wend reads the param names straight out of the path string and types them
+for you, with no annotation:
 
 ```ts
 route.match({ path: '/orgs/:orgId/users/:userId', method: 'GET' }, handler(({ route }) => {
@@ -122,21 +127,31 @@ route.match({ path: '/orgs/:orgId/users/:userId', method: 'GET' }, handler(({ ro
 - `*name` → `string[]` (wildcard / splat)
 - `{name}` → optional, becomes `string | undefined`
 
+The full `path-to-regexp` syntax is available at runtime; wend infers the common
+cases above at the type level.
+
 ## Middleware
 
-Two kinds, both type-safe. **Context middleware** with `extend` returns fields
-that are merged into the context and visible (and typed) downstream:
+**Write middleware as a factory — a function that returns the middleware** — even
+when it takes no configuration (`() => …`). It's a small convention with a real
+payoff: every `.with(...)` gets its own instance, you can pass configuration in,
+and you can keep per-instance state private in the factory's closure. So you
+always *call* the factory at the mount: `.with(auth())`, not `.with(auth)`.
+
+There are two kinds. **Context middleware** (`extend`) returns fields that are
+merged into `ctx` and become visible — and typed — for every downstream handler:
 
 ```ts
 import { createNodeHandler, extend, handler, notFound } from '@ricokahler/wend/node';
 
-const auth = extend(async ({ req }) => ({
-  user: await authenticate(req), // ctx.user is now typed downstream
-}));
+const auth = () =>
+  extend(async ({ req }) => ({
+    user: await authenticate(req), // ctx.user is typed downstream
+  }));
 
 const app = createNodeHandler((route) =>
   route
-    .with(auth)
+    .with(auth())
     .match({ path: '/me', method: 'GET' }, handler(({ user, res }) => {
       res.json({ id: user.id });
     }))
@@ -144,18 +159,54 @@ const app = createNodeHandler((route) =>
 );
 ```
 
-**Wrapper middleware** with `middleware` wraps execution — for CORS, timing, or
-logging. On `@ricokahler/wend/fetch` it can transform the returned `Response`:
+**Wrapper middleware** (`middleware`) wraps execution — CORS, timing, logging. On
+`@ricokahler/wend/fetch` it can also transform the returned `Response`:
 
 ```ts
 import { middleware } from '@ricokahler/wend/fetch';
 
-const cors = middleware((next) => async (ctx) => {
-  if (ctx.routing.method === 'OPTIONS') return new Response(null, { status: 204 });
-  const res = await next(ctx);
-  res.headers.set('access-control-allow-origin', '*');
-  return res;
-});
+const cors = () =>
+  middleware((next) => async (ctx) => {
+    if (ctx.routing.method === 'OPTIONS') return new Response(null, { status: 204 });
+    const res = await next(ctx);
+    res.headers.set('access-control-allow-origin', '*');
+    return res;
+  });
+```
+
+**Configuration is just an argument** to the factory:
+
+```ts
+const requireRole = (role: string) =>
+  extend(({ user }: { user: { role: string } }) => {
+    if (user.role !== role) throw httpError(403, { error: 'forbidden' });
+    return {};
+  });
+
+route.with(auth()).with(requireRole('admin'));
+```
+
+**State stays private in the closure** — each call gets its own. Here's a small
+in-memory rate limiter; the `hits` map belongs to that one instance:
+
+```ts
+const rateLimit = ({ max, windowMs }: { max: number; windowMs: number }) => {
+  const hits = new Map<string, { count: number; resetAt: number }>(); // private per instance
+
+  return middleware((next) => async (ctx) => {
+    const key = ctx.req.headers.get('x-forwarded-for') ?? 'anon';
+    const now = Date.now();
+    const seen = hits.get(key);
+    if (!seen || now > seen.resetAt) {
+      hits.set(key, { count: 1, resetAt: now + windowMs });
+    } else if (++seen.count > max) {
+      return new Response('Too many requests', { status: 429 });
+    }
+    return next(ctx);
+  });
+};
+
+route.with(rateLimit({ max: 100, windowMs: 60_000 }));
 ```
 
 Middleware composes with `.with(...)` and applies in declaration order.
@@ -283,24 +334,26 @@ import {
   createFetchHandler, extend, handler, httpError, middleware, notFound,
 } from '@ricokahler/wend/fetch';
 
-const log = middleware((next) => async (ctx) => {
-  const started = Date.now();
-  const res = await next(ctx);
-  console.log(`${ctx.routing.method} ${ctx.routing.pathname} → ${res.status} (${Date.now() - started}ms)`);
-  return res;
-});
+const log = () =>
+  middleware((next) => async (ctx) => {
+    const started = Date.now();
+    const res = await next(ctx);
+    console.log(`${ctx.routing.method} ${ctx.routing.pathname} → ${res.status} (${Date.now() - started}ms)`);
+    return res;
+  });
 
-const requireAuth = extend(({ req }) => {
-  const token = req.headers.get('authorization');
-  if (!token) throw httpError(401, { error: 'Unauthorized' }); // short-circuits here
-  return { user: { id: token.replace('Bearer ', '') } };
-});
+const requireAuth = () =>
+  extend(({ req }) => {
+    const token = req.headers.get('authorization');
+    if (!token) throw httpError(401, { error: 'Unauthorized' }); // short-circuits here
+    return { user: { id: token.replace('Bearer ', '') } };
+  });
 
 const app = createFetchHandler((route) =>
   route
-    .with(log)           // wraps every request
-    .with(requireAuth)   // adds ctx.user
-    .with(body(NewUser)) // adds ctx.body  (from the section above)
+    .with(log())           // wraps every request
+    .with(requireAuth())   // adds ctx.user
+    .with(body(NewUser))   // adds ctx.body  (body(schema) is itself a factory)
     .match({ path: '/users', method: 'POST' }, handler(({ user, body }) =>
       Response.json({ by: user.id, created: body.email }), // user and body both typed
     ))
@@ -308,8 +361,8 @@ const app = createFetchHandler((route) =>
 );
 ```
 
-`requireAuth` throws before the handler runs, so unauthenticated requests never
-reach it — and because context accumulates by type, removing `.with(requireAuth)`
+`requireAuth()` throws before the handler runs, so unauthenticated requests never
+reach it — and because context accumulates by type, removing `.with(requireAuth())`
 turns `ctx.user` into a compile error at the handler.
 
 ## API

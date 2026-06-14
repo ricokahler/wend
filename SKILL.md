@@ -27,7 +27,7 @@ Only the handler body and the create function differ.
 ## 2. Mental model
 
 - **Immutable builder.** `.with(mw)` and `.match(spec, def)` each return a *new* router. Build by chaining; declaration order is the matching order.
-- **Typed context accumulates.** `.with(extend(...))` adds fields to `ctx`; every downstream handler sees them, typed.
+- **Typed context accumulates.** `.with(auth())` adds fields to `ctx`; every downstream handler sees them, typed. (Middleware is a factory — see below.)
 - **Params are inferred from the path string.** `'/users/:id'` ⇒ `ctx.route.params.id: string`. No annotation, no generic.
 - **Prefix matching, first match wins.** Uses `path-to-regexp` with `{ end: false }`: `'/status'` matches `/status`, `/status/`, and `/status/x`. Put more specific routes first. Nest + `.serve(notFound())` for exact matching.
 - **Respond by the adapter's contract.** `@ricokahler/wend/node`: write to `ctx.res` (return value ignored). `@ricokahler/wend/fetch`: `return` a `Response`.
@@ -37,8 +37,8 @@ Only the handler body and the create function differ.
 - `createNodeHandler(definition, options?)` / `createFetchHandler(definition, options?)` — build the runtime handler. `options`: `{ onError?, getRouting? }`.
 - `handler(fn)` — a terminal handler. `fn` receives `ctx`.
 - `notFound(message?)` — terminal fallback that yields a 404. Use as the last `.serve(...)`.
-- `extend(build)` — context middleware. `build(ctx)` returns an object merged into downstream context (sync or async).
-- `middleware(mw)` — wrapper middleware: `(next) => (ctx) => ...`. Wrap timing/CORS/logging; on fetch, transform the returned `Response`.
+- `extend(build)` — context middleware. `build(ctx)` returns an object merged into downstream context (sync or async). Wrap in a factory: `const auth = () => extend(build)`.
+- `middleware(mw)` — wrapper middleware: `(next) => (ctx) => ...`. Wrap timing/CORS/logging; on fetch, transform the returned `Response`. Wrap in a factory: `const cors = () => middleware(mw)`.
 - `define(definition)` — name a reusable sub-route tree (for nesting / splitting files).
 - `httpError(status, body?)` — build an error to `throw` for an explicit status + body.
 - `Router` — the underlying builder + types: `Router.Context<P>`, `Router.InferPathParams<S>`, `Router.BaseContext`.
@@ -80,37 +80,63 @@ const app = createFetchHandler((route) =>
 Omit `method` to match any method. `spec.method` is one of
 `GET POST PUT PATCH DELETE OPTIONS HEAD`.
 
-### Context middleware (auth, request-scoped values)
+### Middleware — always a factory
+
+Write middleware as a **factory: a function that returns the middleware** — even
+with no arguments (`() => …`). Call it at the mount (`.with(auth())`). Each call
+is its own instance, so you can pass config and keep per-instance state private
+in the closure.
+
+**Context middleware** (`extend`) — add typed, request-scoped fields:
 
 ```ts
 import { extend } from '@ricokahler/wend/node';
 
-const auth = extend(async ({ req }) => ({
-  user: await authenticate(req), // downstream: ctx.user, fully typed
-}));
+const auth = () =>
+  extend(async ({ req }) => ({
+    user: await authenticate(req), // downstream: ctx.user, fully typed
+  }));
 
-route.with(auth).match({ path: '/me', method: 'GET' }, handler(({ user, res }) => {
+route.with(auth()).match({ path: '/me', method: 'GET' }, handler(({ user, res }) => {
   res.json({ id: user.id });
 }));
 ```
 
-### Wrapper middleware (CORS, timing, logging)
+**Wrapper middleware** (`middleware`) — wrap execution (CORS, timing, logging):
 
 ```ts
 import { middleware } from '@ricokahler/wend/fetch';
 
-const cors = middleware((next) => async (ctx) => {
-  if (ctx.routing.method === 'OPTIONS') return new Response(null, { status: 204 });
-  const res = await next(ctx);
-  res.headers.set('access-control-allow-origin', '*');
-  return res;
-});
+const cors = () =>
+  middleware((next) => async (ctx) => {
+    if (ctx.routing.method === 'OPTIONS') return new Response(null, { status: 204 });
+    const res = await next(ctx);
+    res.headers.set('access-control-allow-origin', '*');
+    return res;
+  });
 
-route.with(cors)./* ...routes... */;
+route.with(cors())./* ...routes... */;
 ```
 
 On `@ricokahler/wend/node`, set headers on `ctx.res` before/after `await next(ctx)` and
 return nothing.
+
+**Config + encapsulated state** are just the factory's arguments and closure —
+each instance is private:
+
+```ts
+const rateLimit = ({ max }: { max: number }) => {
+  const hits = new Map<string, number>(); // private to this instance
+  return middleware((next) => async (ctx) => {
+    const key = ctx.req.headers.get('x-forwarded-for') ?? 'anon';
+    if ((hits.get(key) ?? 0) >= max) return new Response('Too many requests', { status: 429 });
+    hits.set(key, (hits.get(key) ?? 0) + 1);
+    return next(ctx);
+  });
+};
+
+route.with(rateLimit({ max: 100 }));
+```
 
 ### Nested / reusable route trees
 
