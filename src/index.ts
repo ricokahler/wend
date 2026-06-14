@@ -388,6 +388,10 @@ export class Router<TContext extends object = {}, TResult = void> {
    * const auth = () =>
    *   Router.extend(async ({ req }) => ({ user: await authenticate(req) }));
    * ```
+   *
+   * The builder may also *read* context an earlier middleware added; that read
+   * is inferred as a requirement (`TNeeds`), so `.with(...)` rejects this
+   * middleware if it is mounted before its dependency.
    */
   static extend<
     TAdds extends object,
@@ -405,6 +409,10 @@ export class Router<TContext extends object = {}, TResult = void> {
   /**
    * Identity helper for wrapper-style middleware (timing, CORS, logging). By
    * convention, return it from a factory: `const cors = () => Router.middleware(...)`.
+   *
+   * To depend on context an earlier middleware added, declare it with the
+   * `TNeeds` type argument (e.g. `Router.middleware<{}, { user: User }>(...)`);
+   * `.with(...)` then enforces that this runs after its provider.
    */
   static middleware<
     TAdds extends object = {},

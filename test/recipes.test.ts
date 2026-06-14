@@ -7,6 +7,8 @@ import {
   httpError,
   middleware,
   notFound,
+  Router,
+  type FetchContext,
 } from '../src/fetch.js';
 
 // These tests mirror the recipes in the README verbatim, so the documented
@@ -42,12 +44,28 @@ const body = <T extends z.ZodType>(schema: T) =>
     body: parse(schema, await req.json()),
   }));
 
-/** Middleware factory: require a bearer token, expose a typed `ctx.user`. */
-const requireAuth = () =>
+/** Middleware factory: require a bearer token, expose a typed `ctx.user` (id + role). */
+const auth = () =>
   extend(({ req }) => {
     const token = req.headers.get('authorization');
     if (!token) throw httpError(401, { error: 'Unauthorized' });
-    return { user: { id: token.replace('Bearer ', '') } };
+    const [id, role = 'member'] = token.replace('Bearer ', '').split(':');
+    return { user: { id, role } };
+  });
+
+/** Middleware factory that *depends on* `ctx.user` (added by `auth`) and checks a role. */
+const requireRole = (role: string) =>
+  extend(({ user }: { user: { role: string } }) => {
+    if (user.role !== role) throw httpError(403, { error: 'forbidden' });
+    return {};
+  });
+
+/** Wrapper middleware that *depends on* `ctx.user.id` and records an audit line. */
+const auditLog = (sink: string[]) =>
+  middleware<{}, { user: { id: string } }>((next) => async (ctx) => {
+    const res = await next(ctx);
+    sink.push(`${ctx.user.id} ${ctx.routing.method} ${res.status}`);
+    return res;
   });
 
 /** Middleware factory with private per-instance state: a tiny rate limiter. */
@@ -133,7 +151,7 @@ describe('recipes — composition', () => {
     const app = createFetchHandler((route) =>
       route
         .with(log(events))
-        .with(requireAuth())
+        .with(auth())
         .with(body(NewUser))
         .match({ path: '/users', method: 'POST' }, handler(({ user, body }) =>
           Response.json({ by: user.id, created: body.email }),
@@ -168,5 +186,43 @@ describe('recipes — composition', () => {
 
     // A separate factory instance has its own private `hits` map — not limited.
     expect((await hit(make())).status).toBe(200);
+  });
+
+  it('chains middleware that depend on context other middleware added', async () => {
+    const audit: string[] = [];
+
+    const app = createFetchHandler((route) =>
+      route
+        .with(auth()) // adds ctx.user
+        .with(requireRole('admin')) // reads ctx.user, added by auth
+        .with(auditLog(audit)) // reads ctx.user.id, added by auth
+        .match({ path: '/admin', method: 'GET' }, handler(({ user }) =>
+          Response.json({ id: user.id, role: user.role }),
+        ))
+        .serve(notFound()),
+    );
+
+    // No token → auth() short-circuits with 401.
+    expect((await app(request('/admin'))).status).toBe(401);
+    // Wrong role → requireRole() short-circuits with 403.
+    expect(
+      (await app(request('/admin', 'GET', undefined, { authorization: 'Bearer u_1:member' }))).status,
+    ).toBe(403);
+    // Admin → 200, and the audit wrapper saw the user it depends on.
+    const ok = await app(request('/admin', 'GET', undefined, { authorization: 'Bearer u_1:admin' }));
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ id: 'u_1', role: 'admin' });
+    expect(audit).toEqual(['u_1 GET 200']);
+  });
+
+  it('rejects middleware mounted before the context it needs (compile-time)', () => {
+    const route = new Router<FetchContext, Response>(); // context has only `req`
+
+    // @ts-expect-error — requireRole needs ctx.user, which nothing has added yet
+    route.with(requireRole('admin'));
+    // @ts-expect-error — auditLog reads ctx.user.id, also not present yet
+    route.with(auditLog([]));
+
+    expect(true).toBe(true); // the real assertions are the two @ts-expect-errors above
   });
 });

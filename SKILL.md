@@ -27,7 +27,7 @@ Only the handler body and the create function differ.
 ## 2. Mental model
 
 - **Immutable builder.** `.with(mw)` and `.match(spec, def)` each return a *new* router. Build by chaining; declaration order is the matching order.
-- **Typed context accumulates.** `.with(auth())` adds fields to `ctx`; every downstream handler sees them, typed. (Middleware is a factory — see below.)
+- **Typed context accumulates.** `.with(auth())` adds fields to `ctx`; every downstream handler sees them, typed. A middleware can also *require* fields an earlier one added — enforced at compile time. (Middleware is a factory — see below.)
 - **Params are inferred from the path string.** `'/users/:id'` ⇒ `ctx.route.params.id: string`. No annotation, no generic.
 - **Prefix matching, first match wins.** Uses `path-to-regexp` with `{ end: false }`: `'/status'` matches `/status`, `/status/`, and `/status/x`. Put more specific routes first. Nest + `.serve(notFound())` for exact matching.
 - **Respond by the adapter's contract.** `@ricokahler/wend/node`: write to `ctx.res` (return value ignored). `@ricokahler/wend/fetch`: `return` a `Response`.
@@ -138,6 +138,29 @@ const rateLimit = ({ max }: { max: number }) => {
 route.with(rateLimit({ max: 100 }));
 ```
 
+**Depend on upstream context.** A middleware can read fields an earlier one
+added; the read *is* the declaration, and the order is checked at compile time:
+
+```ts
+// auth() adds ctx.user; requireRole (extend) depends on it.
+const requireRole = (role: string) =>
+  extend(({ user }: { user: { role: string } }) => {
+    if (user.role !== role) throw httpError(403, { error: 'forbidden' });
+    return {};
+  });
+
+// A wrapper (middleware) that needs upstream context declares it via the type arg.
+const auditLog = () =>
+  middleware<{}, { user: { id: string } }>((next) => async (ctx) => {
+    const res = await next(ctx);
+    console.log(`${ctx.user.id} → ${res.status}`);
+    return res;
+  });
+
+route.with(auth()).with(requireRole('admin')).with(auditLog());
+// .with(requireRole('admin')) BEFORE auth() is a type error — ctx.user isn't there yet.
+```
+
 ### Nested / reusable route trees
 
 ```ts
@@ -194,5 +217,6 @@ Bun.serve({ fetch: createFetchHandler(routes) });
 - **`notFound()` is called, not just referenced** — `.serve(notFound())` (note the call). It returns a handler; to throw inline use `notFound()(ctx)` or just `throw new RouteNotFoundError(...)`.
 - **Param types:** `:name` → `string`, `*name` → `string[]`, `{name}` → `string | undefined`.
 - **`extend` vs `middleware`:** use `extend` to *add typed context*; use `middleware` to *wrap execution* (and, on fetch, transform the response).
+- **Middleware ordering is type-checked.** A middleware that reads `ctx.user` won't mount before the one that adds it — `.with(...)` rejects it. Put providers before consumers.
 - **Import from the adapter** (`@ricokahler/wend/node` / `@ricokahler/wend/fetch`) so `ctx.req`/`ctx.res` and the return type are correctly typed. Importing `handler`/`extend` from `@ricokahler/wend` directly loses the runtime-specific context typing.
 - **Node 18+** is required (Fetch globals). The only dependency is `path-to-regexp`.

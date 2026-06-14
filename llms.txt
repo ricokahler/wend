@@ -6,7 +6,7 @@ Import from a runtime adapter. `@ricokahler/wend/node` covers node:http, Express
 
 ## Docs
 
-- [README](README.md): install, the idea, per-runtime examples, typed params, middleware, nested routes, errors, API reference, compatibility table.
+- [README](README.md): install, the idea, per-runtime examples, typed params, middleware (`extend` vs `middleware`, the factory convention, dependency chaining with compile-time ordering), nested routes, errors, Zod validation, composition, API reference, compatibility table, and an "under the hood" design overview.
 - [SKILL.md](SKILL.md): agent-focused usage guide — choose the adapter, mental model, core API, copy-paste recipes, gotchas. A Claude Agent Skill; usable by any agent.
 - [AGENTS.md](AGENTS.md): repo layout, commands, conventions, and a pointer to SKILL.md.
 

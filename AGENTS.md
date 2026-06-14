@@ -19,13 +19,14 @@ One-line orientation: import from `@ricokahler/wend/node` (handlers mutate `res`
 - `src/index.ts` — the runtime-agnostic core: the `Router` builder, type-level path-param inference, `Middleware`, `RouteNotFoundError` / `HttpError`, and the responder-driven `Router.errorBoundary`. **Must not import `node:http` or reference `Response`.**
 - `src/node.ts` — `@ricokahler/wend/node`: `createNodeHandler` + helpers (`handler`, `define`, `extend`, `middleware`, `notFound`, `httpError`) pinned to `{ req, res }` and a `void` result.
 - `src/fetch.ts` — `@ricokahler/wend/fetch`: `createFetchHandler` + the same helpers pinned to `{ req }` and a `Response` result.
-- `test/{core,node,fetch}.test.ts` — vitest suites.
+- `test/{core,node,fetch}.test.ts` — vitest suites for the core and each adapter.
+- `test/recipes.test.ts` — the README's recipes (validation, middleware factories, dependency chaining + a compile-time ordering check via `@ts-expect-error`), run so the documented patterns are guaranteed to compile and pass.
 - `examples/` — runnable apps (node-express, cloudflare-worker, deno). Not published.
 
 ## Commands
 
 ```bash
-npm test          # vitest run (core + node + fetch)
+npm test          # vitest run (core + node + fetch + README recipes)
 npm run typecheck # tsc --noEmit over src + test
 npm run build     # tsc -p tsconfig.build.json → dist/ (index, node, fetch)
 ```
@@ -36,4 +37,4 @@ npm run build     # tsc -p tsconfig.build.json → dist/ (index, node, fetch)
 - **TypeScript strict.** Keep the type-level param inference in `src/index.ts` intact.
 - **Keep the core runtime-agnostic.** New runtime support = a new thin adapter (`src/<runtime>.ts`) that supplies a base context + error responders to `Router.errorBoundary`; do not push runtime types into the core.
 - **No new runtime dependencies** beyond `path-to-regexp` without strong reason.
-- **Tests** cover the core through a trivial in-test adapter (string result) and each adapter through its real runtime shape (mock `req`/`res`; real `Request`/`Response`). Add cases alongside the matching suite.
+- **Tests** cover the core through a trivial in-test adapter (string result) and each adapter through its real runtime shape (mock `req`/`res`; real `Request`/`Response`). Add cases alongside the matching suite. Any pattern shown in the README belongs in `test/recipes.test.ts` so the docs can't drift from what compiles.

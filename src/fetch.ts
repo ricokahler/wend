@@ -87,7 +87,7 @@ export function define<TContext extends object = {}>(
   return Router.define(definition);
 }
 
-/** Context middleware (return from a factory, e.g. `const auth = () => extend(...)`): merges returned fields into downstream context. */
+/** Context middleware (return from a factory, e.g. `const auth = () => extend(...)`): merges returned fields into downstream context. May also read context an earlier middleware added — ordering is then checked at compile time. */
 export function extend<TAdds extends object, TContext extends object = {}>(
   buildContext: (
     ctx: Router.BaseContext & FetchContext & TContext,
@@ -96,7 +96,7 @@ export function extend<TAdds extends object, TContext extends object = {}>(
   return Router.extend<TAdds, FetchContext & TContext, Response>(buildContext);
 }
 
-/** Wrapper middleware (return from a factory, e.g. `const cors = () => middleware(...)`): wrap execution and/or transform the returned `Response`. */
+/** Wrapper middleware (return from a factory, e.g. `const cors = () => middleware(...)`): wrap execution and/or transform the returned `Response`. Declare a dependency on upstream context via the second type argument. */
 export function middleware<
   TAdds extends object = {},
   TContext extends object = {},

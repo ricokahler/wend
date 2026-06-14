@@ -1,5 +1,11 @@
 # wend
 
+[![npm version](https://img.shields.io/npm/v/@ricokahler/wend?color=cb3837&logo=npm&label=npm)](https://www.npmjs.com/package/@ricokahler/wend)
+[![CI](https://github.com/ricokahler/wend/actions/workflows/ci.yml/badge.svg)](https://github.com/ricokahler/wend/actions/workflows/ci.yml)
+[![gzip size](https://deno.bundlejs.com/badge?q=@ricokahler/wend/fetch)](https://bundlejs.com/?q=%40ricokahler%2Fwend%2Ffetch)
+[![types included](https://img.shields.io/npm/types/@ricokahler/wend?logo=typescript&logoColor=white)](src/index.ts)
+[![license MIT](https://img.shields.io/npm/l/@ricokahler/wend?color=blue)](LICENSE)
+
 Typed, composable HTTP routing for `(req, res)` and `Request`/`Response` handlers.
 
 ```ts
@@ -38,7 +44,7 @@ export default { fetch: app };
 npm install @ricokahler/wend
 ```
 
-Requires Node 18+ (for the Fetch globals). No build step, no codegen — about 800 lines across three files, one runtime dependency ([`path-to-regexp`](https://github.com/pillarjs/path-to-regexp)), and [small enough to read in a sitting](#small-enough-to-read).
+Requires Node 18+ (for the Fetch globals). No build step, no codegen, no decorators — about 830 lines across three files, one runtime dependency ([`path-to-regexp`](https://github.com/pillarjs/path-to-regexp)), [~3.3 kB gzipped](#small-enough-to-read), and [small enough to read in a sitting](#small-enough-to-read).
 
 ## The idea
 
@@ -58,8 +64,15 @@ The builder, the param inference, and the middleware model are identical in both
 only how a handler emits a response differs, and each adapter is native to its
 runtime (no request/response conversion).
 
+The payoff, in short:
+
+- **Typed end to end** — path params *and* middleware context are inferred, never annotated by hand.
+- **Ordering checked by the compiler** — a middleware that reads `ctx.user` won't mount before the one that adds it (see [below](#middleware-that-needs-other-middleware)).
+- **The same code everywhere** — one builder on Node/Express and on Workers/Deno/Bun, through native adapters.
+- **Tiny and dependency-light** — ~3.3 kB gzipped including `path-to-regexp`; one dependency; nothing to generate or compile.
+
 The rest of this README builds up from there: routes → typed params → middleware
-→ nested trees → errors → input validation → composition.
+→ composition → nested trees → errors → input validation.
 
 ## Node / Express
 
@@ -132,62 +145,71 @@ cases above at the type level.
 
 ## Middleware
 
-**Write middleware as a factory — a function that returns the middleware** — even
-when it takes no configuration (`() => …`). It's a small convention with a real
-payoff: every `.with(...)` gets its own instance, you can pass configuration in,
-and you can keep per-instance state private in the factory's closure. So you
-always *call* the factory at the mount: `.with(auth())`, not `.with(auth)`.
+Middleware is how you add behavior in front of your handlers. There are exactly
+**two kinds**, and the names say what they do:
 
-There are two kinds. **Context middleware** (`extend`) returns fields that are
-merged into `ctx` and become visible — and typed — for every downstream handler:
+- **`extend` — adds to the context.** You return an object (sync or `async`); its fields are merged into `ctx` and become typed for every handler and middleware *after* it. Reach for `extend` to **produce a value**: the authenticated user, a parsed body, a database handle.
+- **`middleware` — wraps execution.** You get `(next) => (ctx) => …` and run code *around* `await next(ctx)`. On the Fetch adapter you can also read or replace the returned `Response`. Reach for `middleware` to **act around a request**: timing, logging, CORS, rate limiting, short-circuiting.
+
+The mental model: `extend` passes data **forward**; `middleware` wraps **around**.
+Both are values you create and mount with `.with(...)`, and both apply in
+declaration order.
+
+### Write middleware as a factory
+
+**By convention, middleware is a factory — a function that returns the
+middleware** — even when it takes no configuration (`() => …`). You always *call*
+it at the mount: `.with(auth())`, not `.with(auth)`. It's a one-character habit
+with three payoffs: every `.with(...)` gets its own instance, you can pass
+configuration as arguments, and you can keep per-instance state private in the
+closure.
+
+**Context middleware** (`extend`) — produce typed, request-scoped fields:
 
 ```ts
-import { createNodeHandler, extend, handler, notFound } from '@ricokahler/wend/node';
+import { createNodeHandler, extend, handler, httpError, notFound } from '@ricokahler/wend/node';
 
 const auth = () =>
-  extend(async ({ req }) => ({
-    user: await authenticate(req), // ctx.user is typed downstream
-  }));
+  extend(({ req }) => {
+    const token = req.headers.get('authorization');
+    if (!token) throw httpError(401, { error: 'Unauthorized' });
+    const [id, role = 'member'] = token.replace('Bearer ', '').split(':');
+    return { user: { id, role } }; // ctx.user is typed downstream
+  });
 
 const app = createNodeHandler((route) =>
   route
     .with(auth())
     .match({ path: '/me', method: 'GET' }, handler(({ user, res }) => {
-      res.json({ id: user.id });
+      res.json({ id: user.id, role: user.role });
     }))
     .serve(notFound()),
 );
 ```
 
-**Wrapper middleware** (`middleware`) wraps execution — CORS, timing, logging. On
-`@ricokahler/wend/fetch` it can also transform the returned `Response`:
+**Wrapper middleware** (`middleware`) — wrap execution. Configuration is just an
+argument to the factory; here the allowed origin:
 
 ```ts
 import { middleware } from '@ricokahler/wend/fetch';
 
-const cors = () =>
+const cors = (origin: string) =>
   middleware((next) => async (ctx) => {
     if (ctx.routing.method === 'OPTIONS') return new Response(null, { status: 204 });
-    const res = await next(ctx);
-    res.headers.set('access-control-allow-origin', '*');
-    return res;
-  });
-```
-
-**Configuration is just an argument** to the factory:
-
-```ts
-const requireRole = (role: string) =>
-  extend(({ user }: { user: { role: string } }) => {
-    if (user.role !== role) throw httpError(403, { error: 'forbidden' });
-    return {};
+    const res = await next(ctx);          // run the rest of the stack
+    res.headers.set('access-control-allow-origin', origin);
+    return res;                           // …then transform the Response
   });
 
-route.with(auth()).with(requireRole('admin'));
+route.with(cors('https://example.com'));
 ```
 
-**State stays private in the closure** — each call gets its own. Here's a small
-in-memory rate limiter; the `hits` map belongs to that one instance:
+On `@ricokahler/wend/node`, set headers on `ctx.res` before/after `await next(ctx)`
+and return nothing.
+
+**State stays private in the closure** — each call to the factory gets its own.
+Here's a small in-memory rate limiter; the `hits` map belongs to that one
+instance:
 
 ```ts
 const rateLimit = ({ max, windowMs }: { max: number; windowMs: number }) => {
@@ -209,7 +231,63 @@ const rateLimit = ({ max, windowMs }: { max: number; windowMs: number }) => {
 route.with(rateLimit({ max: 100, windowMs: 60_000 }));
 ```
 
-Middleware composes with `.with(...)` and applies in declaration order.
+## Middleware that needs other middleware
+
+Because context accumulates *by type*, a middleware can **declare that it depends
+on fields an earlier one added** — just by reading them. wend tracks both what a
+middleware *adds* and what it *needs*, so the chain is checked at compile time.
+
+`auth()` above adds `ctx.user`. A `requireRole` step depends on it: it reads
+`ctx.user.role`, and that read is all it takes to declare the dependency.
+
+```ts
+import { extend, httpError } from '@ricokahler/wend/fetch';
+
+// Depends on ctx.user (added by auth). Adds nothing itself.
+const requireRole = (role: string) =>
+  extend(({ user }: { user: { role: string } }) => {
+    if (user.role !== role) throw httpError(403, { error: 'forbidden' });
+    return {};
+  });
+```
+
+A *wrapper* middleware can depend on upstream context too — declare what it needs
+with the type argument:
+
+```ts
+import { middleware } from '@ricokahler/wend/fetch';
+
+// Depends on ctx.user.id (added by auth) to attribute each request.
+const auditLog = () =>
+  middleware<{}, { user: { id: string } }>((next) => async (ctx) => {
+    const res = await next(ctx);
+    console.log(`user ${ctx.user.id}: ${ctx.routing.method} → ${res.status}`);
+    return res;
+  });
+```
+
+Mount them after `auth()` and everything lines up — `ctx.user` exists, fully
+typed, by the time each one runs:
+
+```ts
+route
+  .with(auth())               // adds ctx.user
+  .with(requireRole('admin')) // needs ctx.user
+  .with(auditLog());          // needs ctx.user.id
+```
+
+Get the order wrong and it's a **type error, not a runtime surprise** — wend knows
+`requireRole` needs `ctx.user` and won't let it mount before `auth()` provides it:
+
+```ts
+route
+  .with(requireRole('admin')) // ✗ Type error: ctx.user isn't in context yet
+  .with(auth());
+```
+
+This is the same mechanism as typed accumulation, used in reverse: `.with(...)`
+advances the context to include what a middleware adds, and refuses a middleware
+whose needs the current context doesn't already satisfy.
 
 ## Nested routes
 
@@ -234,6 +312,10 @@ const app = createNodeHandler((route) =>
     .serve(notFound()),
 );
 ```
+
+The `define<Router.Context<{ orgId: string }>>(...)` type argument declares what
+the sub-tree expects from its parent — the same needs/adds idea as middleware,
+one level up.
 
 ## Errors
 
@@ -276,7 +358,8 @@ const parse = <T extends z.ZodType>(schema: T, value: unknown): z.infer<T> => {
 };
 ```
 
-**Body** — as reusable middleware that exposes a typed `ctx.body`:
+**Body** — as reusable middleware that exposes a typed `ctx.body` (note it's an
+`async extend` — `extend` accepts a promise):
 
 ```ts
 import { createFetchHandler, extend, handler, notFound } from '@ricokahler/wend/fetch';
@@ -330,9 +413,7 @@ union of everything before it. Stack logging, auth, and body validation — the
 types follow through:
 
 ```ts
-import {
-  createFetchHandler, extend, handler, httpError, middleware, notFound,
-} from '@ricokahler/wend/fetch';
+import { createFetchHandler, handler, middleware, notFound } from '@ricokahler/wend/fetch';
 
 const log = () =>
   middleware((next) => async (ctx) => {
@@ -342,17 +423,10 @@ const log = () =>
     return res;
   });
 
-const requireAuth = () =>
-  extend(({ req }) => {
-    const token = req.headers.get('authorization');
-    if (!token) throw httpError(401, { error: 'Unauthorized' }); // short-circuits here
-    return { user: { id: token.replace('Bearer ', '') } };
-  });
-
 const app = createFetchHandler((route) =>
   route
     .with(log())           // wraps every request
-    .with(requireAuth())   // adds ctx.user
+    .with(auth())          // adds ctx.user  (from "Middleware" above)
     .with(body(NewUser))   // adds ctx.body  (body(schema) is itself a factory)
     .match({ path: '/users', method: 'POST' }, handler(({ user, body }) =>
       Response.json({ by: user.id, created: body.email }), // user and body both typed
@@ -361,9 +435,10 @@ const app = createFetchHandler((route) =>
 );
 ```
 
-`requireAuth()` throws before the handler runs, so unauthenticated requests never
-reach it — and because context accumulates by type, removing `.with(requireAuth())`
-turns `ctx.user` into a compile error at the handler.
+`auth()` throws before the handler runs, so unauthenticated requests never reach
+it — and because context accumulates by type, removing `.with(auth())` turns
+`ctx.user` into a compile error at the handler (and at any middleware that needed
+it).
 
 ## API
 
@@ -374,10 +449,10 @@ their runtime):
 | --- | --- |
 | `createNodeHandler(def, opts?)` | Build `(req, res) => Promise<void>`. `opts`: `onError`, `getRouting`. |
 | `createFetchHandler(def, opts?)` | Build `(request) => Promise<Response>`. `opts`: `onError`, `getRouting`. |
-| `handler(fn)` | A terminal handler. |
-| `notFound(message?)` | A fallback that produces a 404. |
-| `extend(build)` | Context middleware — merges returned fields into context. |
-| `middleware(mw)` | Wrapper middleware — `(next) => (ctx) => ...`. |
+| `handler(fn)` | A terminal handler — receives `ctx`, responds. |
+| `notFound(message?)` | A fallback that produces a 404. Use as the last `.serve(...)`. |
+| `extend(build)` | Context middleware — merges the returned fields into context. Can read context an earlier `extend` added. |
+| `middleware(mw)` | Wrapper middleware — `(next) => (ctx) => ...`. Declare upstream needs via its type argument. |
 | `define(def)` | Name a reusable sub-route tree. |
 | `httpError(status, body?)` | Build an error to throw for an explicit status + body. |
 | `Router` | The underlying builder + types (`Router.Context`, `Router.InferPathParams`, …). |
@@ -399,38 +474,46 @@ their runtime):
 | Fastify (raw) | `@ricokahler/wend/node` |
 | Google Cloud Functions | `@ricokahler/wend/node` |
 
-## How it works
+## Under the hood
 
-Each `.with(...)` and `.match(...)` returns a new `Router` — no mutation, no
-ordering surprises. The type parameter tracks accumulated context:
+The whole design is four small decisions, and they're worth knowing because they
+explain the ergonomics above:
 
-```
-Router<{}>
-  .with(auth)                      // Router<{ user: User }>
-  .match({ path: '/x/:id' }, ...)  // Router<{ user: User }>
-  .serve(handler)                  // a composed handler
-```
+- **The builder is immutable.** Every `.with(...)` and `.match(...)` returns a new `Router` — nothing is mutated, so declaration order is the only order. A `Router` is just a value: build it, share it, mount it anywhere. No registration side effects, no “did I call this before that” bugs.
+
+  ```
+  Router<{}>
+    .with(auth())                    // Router<{ user: User }>
+    .match({ path: '/x/:id' }, ...)  // Router<{ user: User }>
+    .serve(handler)                  // a composed handler
+  ```
+
+- **One context object flows through everything.** Middleware and routing share a single `ctx`. A handler's entire world is that object — the request, the matched `route` (with typed params), and whatever middleware added. Nothing hides on `this` or in a global.
+- **One type does the heavy lifting.** A middleware is typed `Middleware<TAdds, TNeeds>` — *“I add `TAdds`, I need `TNeeds`.”* `.with(...)` checks the current context satisfies `TNeeds`, then advances it to include `TAdds`. That single idea is what gives you *both* typed accumulation *and* the compile-time ordering check — they're the same rule read in two directions.
+- **The core is runtime-agnostic.** `src/index.ts` never imports `node:http` or references `Response`. An adapter supplies a base context (`req`/`res` or `req`) and a set of error responders to `errorBoundary` — that's the whole seam. Supporting a new runtime is one small file.
 
 Routes use `path-to-regexp` with prefix matching (`{ end: false }`): `/status`
 matches `/status`, `/status/`, and `/status/anything`. Routes are tried in
 declaration order; the first match wins. Nest a route and add `.serve(notFound())`
-to get exact matching. The remaining pathname after a match is on
+to get exact matching. After a match, the remaining pathname is on
 `ctx.routing.pathname` inside the matched sub-tree.
-
-`createNodeHandler` / `createFetchHandler` install an error boundary and inject
-the base context (`req`, the matched `routing`, and `res` for Node). The router
-core itself imports neither `node:http` nor `Response`.
 
 ## Small enough to read
 
-The whole library is **~800 lines across three files** — much of it the
-compile-time path-param inference and doc comments. One runtime dependency
-(`path-to-regexp`). If you like to know what you depend on, it's short enough to
-read end to end:
+The whole library is **~830 lines across three files** — much of it the
+compile-time path-param inference and doc comments — and tree-shakes to about
+**3.3 kB gzipped**, `path-to-regexp` included:
+
+[![@ricokahler/wend/fetch gzip size](https://deno.bundlejs.com/badge?q=@ricokahler/wend/fetch)](https://bundlejs.com/?q=%40ricokahler%2Fwend%2Ffetch) `@ricokahler/wend/fetch`
+&nbsp;·&nbsp;
+[![@ricokahler/wend/node gzip size](https://deno.bundlejs.com/badge?q=@ricokahler/wend/node)](https://bundlejs.com/?q=%40ricokahler%2Fwend%2Fnode) `@ricokahler/wend/node`
+
+One runtime dependency. If you like to know what you depend on, it's short enough
+to read end to end:
 
 - [`src/index.ts`](src/index.ts) — the builder, the type-level param inference, and the error boundary. Imports nothing runtime-specific.
-- [`src/node.ts`](src/node.ts) — the Node adapter (~140 lines).
-- [`src/fetch.ts`](src/fetch.ts) — the Fetch adapter (~110 lines).
+- [`src/node.ts`](src/node.ts) — the Node adapter (~150 lines).
+- [`src/fetch.ts`](src/fetch.ts) — the Fetch adapter (~120 lines).
 
 The `src/` is shipped in the published package too, so it's there in
 `node_modules/@ricokahler/wend/` as well.
